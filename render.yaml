@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: ezsolution-workdesk
+    runtime: node
+    plan: 0.5c-512mb
+    region: singapore
+    numInstances: 1
+    buildCommand: node --check server.mjs
+    startCommand: node server.mjs
+    healthCheckPath: /health
+    disk:
+      name: workdesk-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: DATA_DIR
+        value: /var/data
+      - key: DATA_KEY
+        generateValue: true
+      - key: ADMIN_LOGIN
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+

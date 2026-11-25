@@ -1,0 +1,25 @@
+<!DOCTYPE html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>근태 조회 · 이지솔루션</title><style>*{box-sizing:border-box}body{margin:0;background:#f2f6f6;color:#16332f;font:16px/1.55 system-ui,sans-serif}main{max-width:1040px;margin:5vh auto;padding:20px}h1{font-size:1.7rem;margin:.45em 0}h2{font-size:1.25rem}section{background:white;border:1px solid #ccd9d6;border-radius:12px;padding:20px;margin-bottom:16px}button,a,input,select{font:inherit}button,a{cursor:pointer}button{color:white;background:#08695f;border:0;padding:9px 14px;border-radius:6px}input,select{max-width:100%;padding:8px;border:1px solid #91afa9;border-radius:5px}form,label{display:grid;gap:8px}form{gap:14px;max-width:440px}.row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:space-between}.table{overflow-x:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}th,td{text-align:left;padding:9px;border-bottom:1px solid #dce6e4}p[role=status]{color:#8d472a}a{color:#005b52}</style><main><small>이지솔루션 · 현장 운영관리</small><div class="row"><h1>근태 조회</h1><button id="logout">로그아웃</button></div><section><div class="row"><label>조회일<input type="date" id="day" required></label><button id="refresh">새로고침</button></div><p id="count"></p><div class="table"><table><thead><tr><th>공정</th><th>직원</th><th>상태</th><th>출근</th><th>퇴근</th><th>지각</th><th>조퇴</th><th>잔업</th></tr></thead><tbody></tbody></table></div></section><p id="message" role="status"></p></main><script>const $=s=>document.querySelector(s);
+async function request(path,body){const opt=body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{};const res=await fetch(path,{...opt,cache:'no-store'});const data=await res.json();if(!res.ok){if(res.status===401&&path!=='/api/login')location.replace('/');throw Error(data.error||'요청 실패');}return data;}
+function report(e){$('#message').textContent=e.message;}
+function submit(selector,fn){$(selector).onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,b=f.querySelector('button');b.disabled=true;try{$('#message').textContent='';await fn(Object.fromEntries(new FormData(f)));}catch(e){report(e);}finally{b.disabled=false;}};}
+if($('#logout'))$('#logout').onclick=async()=>{try{await request('/api/logout',{});location.replace('/');}catch(e){report(e);}};
+window.addEventListener('pageshow',e=>{if(e.persisted)location.reload()});
+
+const time=v=>{if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(v))throw Error('시각을 확인하세요.');return Number(v.slice(0,2))*60+Number(v.slice(3));};
+const overlap=(a,b,c,d)=>Math.max(0,Math.min(b,d)-Math.max(a,c));
+const won=n=>{if(!Number.isSafeInteger(n)||n<0)throw Error('금액은 0 이상의 정수로 입력하세요.');return n;};
+function calculate(x){
+const s=time(x.start),e=time(x.end),b=time(x.bs),c=time(x.be);
+if(e<=s||b<s||c<b||c>e||e-s-(c-b)<=0)throw Error('기본근무와 휴게 시각을 확인하세요. 이 버전은 당일 주간 근무를 계산합니다.');
+const minutes=(a,z)=>Math.max(0,z-a-overlap(a,z,b,c)),base=minutes(s,e);
+let a=x.absent?s:time(x.arrive),z=x.absent?s:time(x.leave);
+if(!x.absent&&z<=a)throw Error('퇴근은 출근보다 늦어야 합니다.');if(!Number.isInteger(x.ot)||x.ot<0||x.ot>1440||(x.absent&&x.ot))throw Error('잔업 분을 확인하세요.');
+let worked=x.absent?0:minutes(Math.min(e,Math.max(a,s)),Math.max(s,Math.min(z,e)));
+let basic=Math.round(won(x.rate)*worked/base),overtime=Math.round(won(x.otRate)*x.ot/60);
+let late=x.absent?0:minutes(s,Math.min(e,Math.max(a,s))),early=x.absent?0:minutes(Math.max(s,Math.min(z,e)),e);
+return {base,worked,late,early,basic,overtime,loss:x.rate-basic,bill:Math.round(x.bill*worked/base)+Math.round(x.otBill*x.ot/60),gross:basic+overtime};
+}
+
+$('#day').value=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+let last=0;async function refresh(){const n=++last,date=$('#day').value;try{const result=await request('/api/attendance?day='+encodeURIComponent(date));if(n!==last)return;const tbody=$('tbody');tbody.replaceChildren();for(const r of result){const c=r.state==='출근'?calculate({...r,rate:0,bill:0,otRate:0,otBill:0}):null;const row=tbody.insertRow();for(const value of [r.group,r.name,r.state,r.arrive||'—',r.leave||'—',c?c.late+'분':'—',c?c.early+'분':'—',c?r.ot+'분':'—'])row.insertCell().textContent=value; }$('#count').textContent=date+' · 총 '+result.length+'명 · 출근 '+result.filter(x=>x.state==='출근').length+'명 · 결근 '+result.filter(x=>x.state==='결근').length+'명 · 미확인 '+result.filter(x=>x.state==='미확인').length+'명';$('#message').textContent='';}catch(e){if(n===last){$('tbody').replaceChildren();$('#count').textContent='';report(e);}}}
+$('#day').onchange=refresh;$('#refresh').onclick=refresh;refresh();setInterval(()=>{if(!document.hidden)refresh()},60000);</script></html>

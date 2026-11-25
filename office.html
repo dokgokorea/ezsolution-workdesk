@@ -1,0 +1,626 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="ez-hosted" content="team"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>이지솔루션 · 근태급여</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6f8;color:#162b36;font:16px/1.55 "Malgun Gothic",system-ui,sans-serif}aside{position:fixed;inset:0 auto 0 0;width:215px;background:#132f36;color:white;padding:28px 16px}aside strong{font-size:22px}aside small{display:block;color:#b8d8d6;margin-bottom:35px}nav{display:grid;gap:7px}button,select,input,textarea{font:inherit}button{cursor:pointer;border:1px solid #b5c9c6;border-radius:7px;background:white;color:#173d40;padding:8px 13px;font-weight:650}button:hover{background:#e2f0ee}button.on,button.primary{background:#08766b;color:white;border-color:#08766b}nav button{background:transparent;color:#d3e6e4;text-align:left;border:0;padding:11px}main{margin-left:215px;max-width:1600px;padding:30px clamp(18px,3vw,52px)}header,.line{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}h1{font-size:clamp(26px,3vw,37px);letter-spacing:-.055em;margin:8px 0 15px}h2{font-size:20px;margin:0 0 12px}p{margin:7px 0;color:#476069}.status{font-size:14px;color:#4d6364}section,.card{background:white;border:1px solid #d4dfe0;border-radius:12px;padding:20px;margin:14px 0}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.metrics .card{margin:0;padding:15px;min-width:0}.card small{color:#496166}.card b{display:block;font-size:clamp(17px,2vw,27px);font-variant-numeric:tabular-nums}.accent{background:#e7f3ee}.table{overflow:auto;max-height:55vh}table{border-collapse:collapse;width:100%;white-space:nowrap;font-size:14px}th,td{padding:10px 9px;text-align:left;border-bottom:1px solid #e3eaea}th{background:#edf4f3;position:sticky;top:0}td.num{text-align:right}input,select{border:1px solid #a9bdbc;border-radius:6px;padding:7px;background:#fff;max-width:100%;min-width:0}label{display:grid;gap:4px;font-size:14px;color:#344e53}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:13px}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.msg{background:#fef1d7;border-left:4px solid #af792a;padding:10px 14px;margin:10px 0;color:#624915}.tip{font-size:14px}.empty{padding:20px;text-align:center;color:#586e74}dialog{border:1px solid #b7cac9;border-radius:12px;max-width:min(650px,95vw);width:540px;padding:24px;max-height:85vh}dialog::backdrop{background:#18353a88}details{margin:9px 0}summary{cursor:pointer}#notify:empty{display:none}ul{padding-left:20px}.money{font-variant-numeric:tabular-nums;font-weight:650}@media(max-width:850px){aside{position:static;width:auto;padding:12px 16px}aside small{display:none}nav{display:flex;overflow:auto;margin-top:6px}nav button{white-space:nowrap;font-size:14px;padding:6px 8px}main{margin:0;padding:14px}.metrics{grid-template-columns:repeat(2,1fr)}}@media print{aside,header button,.actions,dialog,.noPrint,#notify,#bar{display:none!important}main{margin:0;padding:0}.table{max-height:none;overflow:visible}section,.card{break-inside:avoid}th{position:static}}
+body.signed-out aside{display:none}body.signed-out main{margin:9vh auto 0;max-width:560px;padding:24px}body.signed-out header{display:block}.login-card{padding:28px}.login-card button{margin:18px 0 8px}.login-card h2{margin-bottom:8px}.login-card .tip{color:#526767}
+</style><aside><strong>이지솔루션</strong><small>익산 현장 운영</small><nav id="nav"></nav></aside><main><header><div><div class="status" id="mode"></div><h1 id="title"></h1></div><div id="bar"></div></header><div id="notify" role="status" class="msg"></div><article id="view"></article></main><dialog id="dlg"></dialog><script>const empty=()=>({staff:[],days:[],charges:[],credits:[],receipts:[],bonuses:[],locks:[],operating:[]});
+const time=v=>{if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(v))throw Error('시각을 확인하세요.');return Number(v.slice(0,2))*60+Number(v.slice(3));};
+const overlap=(a,b,c,d)=>Math.max(0,Math.min(b,d)-Math.max(a,c));
+const won=n=>{if(!Number.isSafeInteger(n)||n<0)throw Error('금액은 0 이상의 정수로 입력하세요.');return n;};
+function calculate(x){
+const s=time(x.start),e=time(x.end),b=time(x.bs),c=time(x.be);
+if(e<=s||b<s||c<b||c>e||e-s-(c-b)<=0)throw Error('기본근무와 휴게 시각을 확인하세요. 이 버전은 당일 주간 근무를 계산합니다.');
+const minutes=(a,z)=>Math.max(0,z-a-overlap(a,z,b,c)),base=minutes(s,e);
+let a=x.absent?s:time(x.arrive),z=x.absent?s:time(x.leave);
+if(!x.absent&&z<=a)throw Error('퇴근은 출근보다 늦어야 합니다.');if(!Number.isInteger(x.ot)||x.ot<0||x.ot>1440||(x.absent&&x.ot))throw Error('잔업 분을 확인하세요.');
+let worked=x.absent?0:minutes(Math.min(e,Math.max(a,s)),Math.max(s,Math.min(z,e)));
+let basic=Math.round(won(x.rate)*worked/base),overtime=Math.round(won(x.otRate)*x.ot/60);
+let late=x.absent?0:minutes(s,Math.min(e,Math.max(a,s))),early=x.absent?0:minutes(Math.max(s,Math.min(z,e)),e);
+return {base,worked,late,early,basic,overtime,loss:x.rate-basic,bill:Math.round(x.bill*worked/base)+Math.round(x.otBill*x.ot/60),gross:basic+overtime};
+}
+function payroll(db,id,month){
+const rows=db.days.filter(x=>x.emp===id&&x.date.slice(0,7)===month);
+const add=(xs,f)=>xs.reduce((a,x)=>a+f(x),0);const m=xs=>xs.filter(x=>x.emp===id&&x.month===month);
+const basic=add(rows,x=>calculate(x).basic),ot=add(rows,x=>calculate(x).overtime),bonus=add(m(db.bonuses),x=>x.amount);
+const deductions=add(m(db.credits),x=>x.amount),sent=add(m(db.receipts),x=>x.amount),gross=basic+ot+bonus;
+return {rows,worked:add(rows,x=>calculate(x).worked),late:add(rows,x=>calculate(x).late),early:add(rows,x=>calculate(x).early),scheduled:add(rows,x=>x.rate),loss:add(rows,x=>calculate(x).loss),basic,ot,bonus,gross,deductions,net:gross-deductions,sent,due:gross-deductions-sent,bill:add(rows,x=>calculate(x).bill)};
+}
+const outstanding=(db,id)=>db.charges.find(x=>x.id===id).amount-db.credits.filter(x=>x.charge===id).reduce((a,x)=>a+x.amount,0);
+function applyCredit(db,charge,month,amount,basis){
+const ch=db.charges.find(x=>x.id===charge);if(!ch||!basis.trim()||!won(amount)||amount>outstanding(db,charge))throw Error('근거와 남은 금액을 확인하세요.');
+if(month<ch.date.slice(0,7)||db.locks.includes(ch.emp+'|'+month))throw Error('비용 발생월 이후의 미마감 월을 선택하세요.');
+if(db.credits.some(x=>x.month===month&&x.charge===charge))throw Error('이 비용은 선택월에 이미 반영됐습니다. 기존 내역을 취소한 뒤 다시 입력하세요.');
+if(payroll(db,ch.emp,month).due<amount)throw Error('이번 달 남은 지급액을 초과합니다. 분할 반영하세요.');
+db.credits.push({id:crypto.randomUUID(),emp:ch.emp,charge,month,amount,basis});
+}
+</script><script>const catalogTypes = {
+  fleet: {label:'차량', edit:'vehicleEdit', key:'vehicle', cost:'차량 '},
+  rooms: {label:'호실', edit:'roomEdit', key:'dorm', cost:'숙소 '},
+  groups: {label:'공정', edit:'groupEdit', key:'group'}
+};
+const activeItems = items => items.filter(item => !item.archivedOn);
+const listedOn = (items,date) => items.filter(item => !item.archivedOn || date < item.archivedOn);
+
+function migrateGroups(data) {
+  if (Array.isArray(data.groups)) return;
+  const names = new Set(processes);
+  for (const e of data.staff) {
+    for (const name of [e.firstGroup,e.group,...(e.assignments||[]).map(a=>a.group)]) if (name) names.add(name);
+  }
+  for (const row of data.days) if (row.group) names.add(row.group);
+  data.groups = [...names].map(name=>({id:crypto.randomUUID(),name}));
+}
+
+function storeItem(data,type,id,rawName,values={}) {
+  const items=data[type], item=id?items.find(it=>it.id===id):null, name=rawName.trim();
+  if (id && !item) throw Error('항목을 다시 선택하세요.');
+  if (!name || items.some(it=>it.id!==id && it.name===name)) throw Error('빈 이름과 중복된 이름은 사용할 수 없습니다. 사용 종료 목록도 확인하세요.');
+  if (type==='groups' && name==='공정 미분류') throw Error('공정 미분류는 공정이 비어 있는 직원을 표시하는 이름입니다.');
+  if (item && item.name!==name) {
+    const old=item.name;
+    if (type==='groups') {
+      for (const e of data.staff) {
+        if (e.group===old) e.group=name;
+        if (e.firstGroup===old) e.firstGroup=name;
+        for (const a of e.assignments||[]) if (a.group===old) a.group=name;
+      }
+      for (const row of data.days) if (row.group===old) row.group=name;
+    }
+    if (type==='rooms') {
+      for (const e of data.staff) {
+        if (e.dorm===old) e.dorm=name;
+        if (e.logBase?.dorm===old) e.logBase.dorm=name;
+        for (const a of e.logChanges||[]) if (a.key==='dorm' && a.value===old) a.value=name;
+      }
+    }
+    const prefix=catalogTypes[type].cost;
+    if (prefix) for (const row of data.operating) if (row.kind.startsWith(prefix) && row.unit===old) row.unit=name;
+  }
+  if (item) Object.assign(item,values,{name});
+  else items.push({id:uid(),...values,name});
+}
+
+function retirementState(data,type,item) {
+  const {key,cost}=catalogTypes[type], value=type==='fleet'?item.id:item.name;
+  let used=type==='groups'?data.days.some(x=>x.group===value):
+    data.operating.some(x=>x.kind.startsWith(cost)&&x.unit===item.name);
+  if (type==='fleet' && data.boardings.some(x=>x.vehicle===value)) used=true;
+  for (const e of data.staff) {
+    const group=type==='groups', events=group?(e.assignments||[]).map(a=>({date:a.from,value:a.group})):(e.logChanges||[]).filter(a=>a.key===key);
+    const base=group?e.firstGroup:e.logBase?.[key];
+    if (base===value || e[key]===value || events.some(a=>a.value===value)) used=true;
+    const start=e.hire>today?e.hire:today;
+    const dates=[start,...events.map(a=>a.date).filter(date=>date>start)];
+    if (dates.some(date=>(type==='rooms'||employedOn(e,date)) && (group?assignedGroup(e,date):fieldAt(e,key,date))===value)) return 'assigned';
+  }
+  return used?'archive':'delete';
+}
+
+function editGroup(id) {
+  const item=db.groups.find(x=>x.id===id);
+  dialog(item?'공정 수정':'공정 추가',inp('name','공정명','text',item?.name||'','required')+
+    (item?'<p>이름을 바꾸면 기존 근태와 정산에도 새 이름이 표시됩니다.</p>':''),
+    f=>change(d=>storeItem(d,'groups',id,f.name)));
+}
+
+function itemAction(type,item) {
+  if (item.archivedOn) return btn('restoreItem','다시 사용','',type+'/'+item.id);
+  return btn(catalogTypes[type].edit,'수정','',item.id)+' '+btn('retireItem','삭제','',type+'/'+item.id);
+}
+function catalogPage() {
+  return Object.entries(catalogTypes).map(([type,config])=>{
+    const items=db[type], archived=items.filter(i=>i.archivedOn);
+    const title=type==='rooms'?'기숙사 호실':config.label;
+    const rows=activeItems(items).map(it=>[H(it.name),itemAction(type,it)]);
+    const past=archived.length?'<details><summary>사용 종료 ('+archived.length+')</summary>'+tbl(['이름','종료일',''],archived.map(it=>[H(it.name),H(it.archivedOn),btn('restoreItem','다시 사용','',type+'/'+it.id)]))+'</details>':'';
+    return '<section><div class="line"><h2>'+title+'</h2>'+btn(config.edit,title+' 추가','primary')+'</div>'+tbl(['이름','관리'],rows,'등록된 항목이 없습니다.')+past+'</section>';
+  }).join('');
+}
+function retireItem(ref,restore) {
+  const [type,id]=ref.split('/'), item=db[type].find(it=>it.id===id);
+  if (!item) throw Error('항목을 다시 선택하세요.');
+  if (restore) return change(d=>{delete d[type].find(it=>it.id===id).archivedOn;});
+  const state=retirementState(db,type,item);
+  if (state==='assigned') throw Error(item.name+'에 현재 또는 예정 배정이 있습니다. 먼저 직원의 '+({fleet:'차량 배정',rooms:'입실 배정',groups:'소속 공정'}[type])+'을 변경하세요.');
+  const archive=state==='archive';
+  return dialog(item.name+(archive?' 사용 종료':' 삭제'),'<p>'+(archive?'기존 사용 기록을 보존하고 새 배정 목록에서 숨깁니다. 기준정보 관리에서 다시 사용할 수 있습니다.':'연결된 기록이 없습니다. 이 항목을 삭제할까요?')+'</p>',()=>change(d=>{
+    if (archive) d[type].find(it=>it.id===id).archivedOn=today;
+    else d[type]=d[type].filter(it=>it.id!==id);
+  }),archive?'사용 종료':'삭제');
+}
+
+
+const fleetNames=['버스 1호','스타리아 1호','스타리아 2호','자차 1호','자차 2호'];
+const baseFleet=()=>fleetNames.map((name,i)=>({id:'vehicle-'+(i+1),name,seats:null,driver:'',plate:''}));
+function upgradeTransport(d){
+  if(!Array.isArray(d.fleet))d.fleet=baseFleet();
+  if(!Array.isArray(d.rooms))d.rooms=[];
+  if(!Array.isArray(d.boardings))d.boardings=[];
+  for(const e of d.staff){
+    const room=String(e.dorm||'').trim();
+    if(room&&!d.rooms.some(r=>r.name===room))d.rooms.push({id:crypto.randomUUID(),name:room,capacity:null,address:''});
+  }
+  migrateGroups(d);
+  return d;
+}
+function fieldAt(e,key,date){
+  let value=e.logBase&&key in e.logBase?e.logBase[key]:e[key]||'';
+  const events=(e.logChanges||[]).filter(x=>x.key===key&&x.date<=date).sort((a,b)=>a.date.localeCompare(b.date));
+  if(events.length)value=events[events.length-1].value;
+  return value;
+}
+function setField(e,key,date,value){
+  if(fieldAt(e,key,date)===value)return;
+  e.logBase={...(e.logBase||{})};if(!(key in e.logBase))e.logBase[key]=e[key]||'';
+  e.logChanges=[...(e.logChanges||[]).filter(x=>!(x.key===key&&x.date===date)),{key,date,value}];
+  e[key]=fieldAt(e,key,'9999-12-31');
+}
+const employedOn=(e,date)=>e.hire<=date&&(!e.exit||date<=e.exit);
+const passengerSeats=v=>Number.isInteger(v.seats)?v.seats-1:null;
+function roomOccupants(data,room,date){
+  return data.staff.filter(e=>e.hire<=date&&fieldAt(e,'dorm',date)===room.name);
+}
+function availableLabel(capacity,used){
+  if(capacity===null||capacity===undefined)return '정원 미설정';
+  const free=capacity-used;return free>=0?free+'석':'초과 '+(-free)+'명';
+}
+function ridePlan(data,vehicle,date){
+  const dow=String(new Date(date+'T12:00:00').getDay());
+  return data.staff.filter(e=>employedOn(e,date)&&fieldAt(e,'vehicle',date)===vehicle.id).map(e=>{
+    const work=data.days.find(x=>x.date===date&&x.emp===e.id);
+    const boarded=data.boardings.some(x=>x.date===date&&x.emp===e.id&&x.vehicle===vehicle.id);
+    return {e,stop:fieldAt(e,'pickup',date)||'픽업지 미입력',boarded,expected:work?!work.absent:String(e.week||'').includes(dow)};
+  }).sort((a,b)=>a.stop.localeCompare(b.stop,'ko')||a.e.name.localeCompare(b.e.name,'ko'));
+}
+function costBlock(area){
+ const filter=area==='차량'?'차량 ':'숙소 ';
+ const items=operatingRows(db,month).filter(r=>r.kind.startsWith(filter));
+ return '<section><div class="line"><h2>'+H(area)+' 비용 내역</h2>'+inp('month','비용 귀속월','month',month)+btn(area==='차량'?'vehicleCost':'roomCost','비용 등록')+'</div>'+tbl(['귀속일','구분','대상','금액',''],items.map(r=>[H(r.date),H(r.kind),H(r.unit),money(r.amount),btn('opEdit','수정','',r.id)]))+'</section>';
+}
+function dormPage(){
+ const rows=listedOn(db.rooms,day).map(r=>{const people=roomOccupants(db,r,day),n=people.length,cap=r.capacity;
+ return [H(r.name),H(r.address||'—'),cap??'미설정',n,cap==null?'정원 미설정':cap<n?'초과 '+(n-cap)+'명':(cap-n)+'명',people.map(e=>H(e.name)+(e.exit&&e.exit<day?' (퇴사)':'')).join(', ')||'—',itemAction('rooms',r)];});
+ return '<section><div class="line"><h2>호실별 입실 현황</h2>'+inp('day','조회일','date',day)+'</div><div class="actions">'+btn('roomAdd','호실 등록','primary')+btn('stay','입실·이동·퇴실')+'</div><p>퇴사 후에도 실제 퇴실을 기록할 때까지 입실 인원에 포함됩니다.</p>'+tbl(['기숙사·호실','주소','정원','입실','빈자리','입실자',''],rows,'먼저 기숙사와 호실을 등록하세요.')+'</section>'+costBlock('기숙사');
+}
+let fleetSelected='vehicle-1';
+function fleetPage(){
+ const vehicles=listedOn(db.fleet,day);
+ const target=vehicles.find(v=>v.id===fleetSelected)||vehicles[0];
+ const toolbar=btn('vehicleEdit','차량 추가','primary');
+ if(!target)return '<section><div class="line"><h2>차량 목록</h2>'+inp('day','운행일','date',day)+toolbar+'</div><p>운행할 차량을 추가하세요.</p></section>'+costBlock('차량');
+ fleetSelected=target.id;
+ const carRows=vehicles.map(v=>{const people=ridePlan(db,v,day),cap=passengerSeats(v),exp=people.filter(a=>a.expected).length,board=people.filter(a=>a.boarded).length;
+ return [btn('route',v.name,v.id===target.id?'primary':'',v.id),H(v.driver||'미입력'),v.seats??'미설정',cap??'미설정',people.length,availableLabel(cap,people.length),exp,board,availableLabel(cap,people.filter(a=>a.expected||a.boarded).length),itemAction('fleet',v)];});
+ const list=ridePlan(db,target,day),stops=new Map();
+ for(const item of list){if(!stops.has(item.stop))stops.set(item.stop,[]);stops.get(item.stop).push(item);}
+ const routeRows=[...stops].map(([stop,people])=>[H(stop),people.length,people.filter(x=>x.expected).length,people.filter(x=>x.boarded).length,people.map(x=>H(x.e.name)).join(', ')]);
+ const rows=list.map(x=>[H(x.stop),H(x.e.name),H(assignedGroup(x.e,day)),x.expected?'운행 예정':'비예정',x.boarded?'탑승 확인':'미확인',btn('board',x.boarded?'확인 취소':'탑승 확인','',x.e.id),btn('rideEdit','배정 변경','',x.e.id)]);
+ const missing=db.staff.filter(e=>employedOn(e,day)&&!fieldAt(e,'vehicle',day));
+ return '<section><div class="line"><h2>차량별 좌석과 탑승 현황</h2>'+inp('day','운행일','date',day)+toolbar+btn('fleetXlsx','배차명단 엑셀 저장')+'</div><p>승객석은 운전석을 뺀 좌석입니다. 당일 여유석은 예정자와 확인된 비예정 탑승자의 자리를 반영합니다.</p>'+tbl(['차량','기사','총 좌석','승객석','고정 배정','배정 후 여유석','당일 예정','탑승 확인','당일 여유석',''],carRows)+'</section><section><div class="line"><h2>'+H(target.name)+' · 픽업지별 명단</h2>'+btn('rideBulk','직원 배정','primary')+'</div>'+tbl(['픽업지','배정','당일 예정','탑승 확인','배정 직원'],routeRows)+'<h3>개별 탑승 확인</h3>'+tbl(['픽업지','직원','공정','예정 여부','탑승 상태','',''],rows)+'</section><details class="card"><summary>차량 미배정 재직자 '+missing.length+'명</summary>'+tbl(['직원','픽업지',''],missing.map(e=>[H(e.name),H(fieldAt(e,'pickup',day)||'미입력'),btn('rideEdit','배정','',e.id)]))+'</details>'+costBlock('차량');
+}
+function editRoom(id){
+ const r=db.rooms.find(x=>x.id===id);
+ const nameField=inp('name','기숙사명과 호실 (예: 익산 1동 201호)','text',r?.name||'','required');
+ dialog(r?'호실 설정':'호실 등록',nameField+inp('address','주소','text',r?.address||'')+inp('capacity','입실 정원 (명)','number',r?.capacity??'','min="1" step="1"'),async f=>change(data=>{
+   const capacity=f.capacity===''?null:Number(f.capacity);if(capacity!==null&&(!Number.isSafeInteger(capacity)||capacity<1))throw Error('정원은 1명 이상의 정수입니다.');
+   storeItem(data,'rooms',id,f.name,{capacity,address:f.address.trim()});
+ }));
+}
+function changeStay(){
+ if(!db.staff.length||!db.rooms.length)throw Error('직원과 기숙사 호실을 먼저 등록하세요.');
+ dialog('입실·이동·퇴실',select('emp','직원',members())+select('room','배정할 호실',[['@choose','선택하세요'],['','퇴실 / 미입실'],...activeItems(db.rooms).map(r=>[r.name,r.name])],'@choose')+inp('date','적용일 (퇴실일 당일부터 제외)','date',day,'required'),async f=>change(data=>{
+ if(f.room==='@choose')throw Error('이동할 호실 또는 퇴실을 선택하세요.');const e=data.staff.find(x=>x.id===f.emp);if(f.date<e.hire)throw Error('입사일 이후 날짜를 선택하세요.');
+ setField(e,'dorm',f.date,f.room);
+ }));
+}
+function editVehicle(id){
+ const v=db.fleet.find(x=>x.id===id);
+ dialog(v?'차량 수정':'차량 추가',inp('name','차량 이름 (예: 스타리아 3호)','text',v?.name||'','required')+
+ inp('seats','총 좌석수 (운전자 1명 포함)','number',v?.seats??'','min="1" step="1"')+
+ inp('driver','담당 기사','text',v?.driver||'')+inp('plate','차량번호','text',v?.plate||'')+'<p>운전자는 승객 명단에서 제외하세요.</p>',f=>change(data=>{
+ const seats=f.seats===''?null:Number(f.seats);
+ if(seats!==null&&(!Number.isSafeInteger(seats)||seats<1))throw Error('총 좌석 수를 확인하세요.');
+ storeItem(data,'fleet',id,f.name,{seats,driver:f.driver.trim(),plate:f.plate.trim()});
+ }));
+}
+function assignRide(data,id,date,vehicle,stop){
+ const e=data.staff.find(x=>x.id===id);if(!e||!employedOn(e,date))throw Error('배정일의 재직 직원을 선택하세요.');
+ if(vehicle&&!activeItems(data.fleet).some(v=>v.id===vehicle))throw Error('차량을 확인하세요.');
+ if(vehicle&&!stop.trim())throw Error(e.name+'의 픽업지를 입력하세요.');
+ if(data.boardings.some(x=>x.emp===id&&x.date>=date&&x.vehicle!==vehicle&&fieldAt(e,'vehicle',x.date)===x.vehicle)){
+   const copy=structuredClone(e);setField(copy,'vehicle',date,vehicle);
+   if(data.boardings.some(x=>x.emp===id&&x.date>=date&&fieldAt(copy,'vehicle',x.date)!==x.vehicle))throw Error('확인된 탑승 내역과 겹칩니다. 적용일을 변경하세요.');
+ }
+ setField(e,'vehicle',date,vehicle);setField(e,'pickup',date,stop.trim());
+}
+function rideEditor(id){
+ const e=getEmp(id),vehicle=fieldAt(e,'vehicle',day);
+ dialog(e.name+' 차량 배정',select('vehicle','차량',[['','탑승 배정 해제'],...activeItems(db.fleet).map(v=>[v.id,v.name])],vehicle)+inp('stop','픽업지','text',fieldAt(e,'pickup',day))+inp('date','배정 적용일','date',day,'required'),async f=>change(d=>assignRide(d,id,f.date,f.vehicle,f.stop)));
+}
+function bulkRide(){
+ const employees=db.staff.filter(e=>employedOn(e,day));
+ if(!activeItems(db.fleet).length)throw Error('운행할 차량을 먼저 추가하세요.');
+ if(!employees.length)throw Error('재직 직원을 먼저 등록하세요.');
+ const list=employees.map(e=>'<label style="display:flex;align-items:center;gap:8px"><input name="rider" type="checkbox" value="'+H(e.id)+'">'+H(e.name)+' · '+H(fieldAt(e,'pickup',day)||'픽업지 미입력')+'</label>').join('');
+ dialog('차량·픽업지 일괄 배정',select('vehicle','배정 차량',activeItems(db.fleet).map(v=>[v.id,v.name]),fleetSelected)+inp('stop','공통 픽업지 (비워두면 직원별 기존 픽업지 사용)','text','')+'<p>적용일 '+H(day)+'</p><div style="max-height:32vh;overflow:auto">'+list+'</div>',async f=>{
+ const ids=Array.from(document.querySelectorAll('#dlg input[name=rider]:checked'),x=>x.value);if(!ids.length)throw Error('배정할 직원을 선택하세요.');
+ await change(d=>{for(const id of ids){const e=d.staff.find(x=>x.id===id);assignRide(d,id,day,f.vehicle,f.stop.trim()||fieldAt(e,'pickup',day));}});fleetSelected=f.vehicle;render();
+ });
+}
+function toggleBoard(data,id,vehicle,date){
+ const i=data.boardings.findIndex(x=>x.date===date&&x.emp===id);
+ if(i>=0){if(data.boardings[i].vehicle!==vehicle)throw Error('다른 차량의 탑승 확인을 먼저 취소하세요.');data.boardings.splice(i,1);return;}
+ const v=data.fleet.find(x=>x.id===vehicle),plan=ridePlan(data,v,date);if(!plan.some(x=>x.e.id===id))throw Error('차량 배정을 확인하세요.');
+ const cap=passengerSeats(v);if(cap===null)throw Error('차량 설정에서 실제 총 좌석 수를 먼저 입력하세요.');
+ if(plan.filter(x=>x.boarded).length>=cap)throw Error('승객석이 모두 찼습니다. 다른 차량에 배정하세요.');
+ data.boardings.push({emp:id,vehicle,date});
+}
+function logisticsCost(which){
+ const vehicle=which==='차량',entries=activeItems(vehicle?db.fleet:db.rooms).map(item=>item.name);
+ if(!entries.length)throw Error((vehicle?'차량':'호실')+'을 먼저 등록하세요.');
+ dialog(which+' 비용 등록',select('unit',vehicle?'차량':'호실',entries.map(n=>[n,n]),vehicle?db.fleet.find(v=>v.id===fleetSelected)?.name:'')+select('kind','항목',costKinds.filter(k=>k.startsWith(vehicle?'차량 ':'숙소 ')).map(k=>[k,k]))+inp('date','귀속일','date',month===today.slice(0,7)?today:month+'-01','required')+inp('amount','금액 (원)','number','','required min="1" step="1"')+inp('note','비고','text',''),async f=>{await change(d=>d.operating.push({...f,id:uid(),amount:won(Number(f.amount))}));month=f.date.slice(0,7);render();});
+}
+function dispatchLogistics(a,id){
+ switch(a){
+ case 'roomEdit': case 'roomAdd':return editRoom(id);
+ case 'stay':return changeStay();
+ case 'vehicleEdit':return editVehicle(id);
+ case 'rideEdit':return rideEditor(id);
+ case 'rideBulk':return bulkRide();
+ case 'route':fleetSelected=id;return render();
+ case 'board':return change(d=>toggleBoard(d,id,fleetSelected,day));
+ case 'roomCost':return logisticsCost('기숙사');
+ case 'vehicleCost':return logisticsCost('차량');
+ }
+}
+const logisticsActions=['roomEdit','roomAdd','stay','vehicleEdit','rideEdit','rideBulk','route','board','roomCost','vehicleCost'];
+function transportSheets(data,date){
+ const cars=[],routes=[];
+ for(const v of listedOn(data.fleet,date)){
+   const people=ridePlan(data,v,date),expected=people.filter(x=>x.expected).length,boarded=people.filter(x=>x.boarded).length;
+   cars.push([date,v.name,v.driver,v.plate,v.seats??'',passengerSeats(v)??'',people.length,expected,boarded,availableLabel(passengerSeats(v),people.filter(x=>x.expected||x.boarded).length)]);
+   for(const x of people)routes.push([date,v.name,x.stop,x.e.code,x.e.name,assignedGroup(x.e,date),x.expected?'예정':'비예정',x.boarded?'확인':'미확인']);
+ }
+ return [['차량 현황',['운행일','차량','기사','차량번호','총 좌석','승객석','고정 배정','당일 예정','탑승 확인','당일 여유석'],cars],
+ ['픽업지별 명단',['운행일','차량','픽업지','사번','성명','공정','당일 예정','탑승 확인'],routes]];
+}
+function mobileFleet(data,date){
+ return listedOn(data.fleet,date).map(v=>{const p=ridePlan(data,v,date),cap=passengerSeats(v);return '<article><strong>'+H(v.name)+'</strong><div>승객석 '+(cap??'미설정')+' · 고정 배정 '+p.length+'명 · 탑승 확인 '+p.filter(x=>x.boarded).length+'명</div></article>';}).join('');
+}
+
+
+const processes=['부산물','돈반','소팀','지게차','육즈비'];
+function assignedGroup(e,date){
+ const changes=(e.assignments||[]).filter(x=>x.from<=date).sort((a,b)=>b.from.localeCompare(a.from));
+ return changes[0]?.group||e.firstGroup||e.group||'';
+}
+const costKinds=['숙소 월세','숙소 관리비','숙소 기타비','숙소 직접 수납','차량 유류비','차량 정비비','차량 보험·임차료','차량 기타비','기타 운영비','매출 추가','매출 차감'];
+function processCounts(data,date){
+  const buckets=new Map((data.groups?listedOn(data.groups,date).map(g=>g.name):processes).map(n=>[n,[0,0,0,0,0,0,0,0]]));
+  const bucket=n=>{const name=(n||'').trim()||'공정 미분류';if(!buckets.has(name))buckets.set(name,[0,0,0,0,0,0,0,0]);return buckets.get(name);};
+  const inc=(name,sex,start)=>{const b=bucket(name);b[start]++;b[start+(sex==='남'?1:sex==='여'?2:3)]++;};
+  const staff=new Map(data.staff.map(e=>[e.id,e]));
+  for(const e of data.staff)if(e.hire<=date&&(!e.exit||date<=e.exit))inc(assignedGroup(e,date),e.sex,0);
+  for(const x of data.days)if(x.date===date&&!x.absent)inc(x.group,x.sex||staff.get(x.emp)?.sex,4);
+  return [...buckets].map(([name,counts])=>[name,...counts]);
+}
+const countHead=['공정','재직 합계','재직 남','재직 여','재직 미입력','출근 합계','출근 남','출근 여','출근 미입력'];
+function countTable(data,date){
+  const rows=processCounts(data,date);
+  return [...rows,['전체',...countHead.slice(1).map((_,i)=>rows.reduce((n,r)=>n+r[i+1],0))]];
+}
+function monthProfit(data,period){
+  const x={bill:0,adjust:0,wages:0,bonus:0,housing:0,recovery:0,direct:0,vehicle:0,other:0};
+  const charges=new Map(data.charges.map(c=>[c.id,c]));
+  for(const row of data.days.filter(r=>r.date.startsWith(period+'-'))){const d=calculate(row);x.bill+=d.bill;x.wages+=d.gross;}
+  for(const row of data.bonuses)if(row.month===period)x.bonus+=row.amount;
+  for(const row of data.credits)if(row.month===period&&charges.get(row.charge)?.type==='숙소비')x.recovery+=row.amount;
+  for(const r of (data.operating||[]).filter(r=>r.date.startsWith(period+'-'))){
+    if(r.kind==='숙소 직접 수납')x.direct+=r.amount;
+    else if(r.kind.startsWith('숙소 '))x.housing+=r.amount;
+    else if(r.kind.startsWith('차량 '))x.vehicle+=r.amount;
+    else if(r.kind==='매출 추가')x.adjust+=r.amount;
+    else if(r.kind==='매출 차감')x.adjust-=r.amount;
+    else x.other+=r.amount;
+  }
+  x.revenue=x.bill+x.adjust;x.labor=x.wages+x.bonus;x.netHousing=x.housing-x.recovery-x.direct;
+  x.profit=x.revenue-x.labor-x.netHousing-x.vehicle-x.other;return x;
+}
+function profitRows(x){return [['근태 청구액',x.bill],['매출 조정',x.adjust],['예상 매출',x.revenue],['세전 인건비 (수당 포함)',x.labor],['숙소 지출',x.housing],['숙소비 급여 회수',x.recovery],['숙소비 직접 수납',x.direct],['숙소 순부담',x.netHousing],['차량비',x.vehicle],['기타 운영비',x.other],['예상 영업손익',x.profit]];}
+function operatingRows(data,period){return (data.operating||[]).filter(x=>x.date.startsWith(period+'-')).slice().sort((a,b)=>a.date.localeCompare(b.date));}
+function staffSummaryMarkup(data,date){return tbl(countHead,countTable(data,date).map(r=>r.map(H)));}
+function financeView(){
+ const x=monthProfit(db,month),items=operatingRows(db,month);
+ return '<section class="line">'+inp('month','조회월','month',month,'required')+btn('opAdd','지출·수납·매출조정 등록','primary')+'</section>'+metrics([['예상 매출',money(x.revenue)],['세전 인건비',money(x.labor)],['숙소 순부담',money(x.netHousing)],['예상 영업손익',money(x.profit),1]])+'<section><h2>월 손익 계산</h2>'+tbl(['항목','금액'],profitRows(x).map(([n,v])=>[H(n),money(v)]))+'<p>숙소비 급여 공제는 자동으로 수납에 반영됩니다. 직접 받은 숙소비만 따로 입력하세요. 병원비 대납 회수와 급여 송금은 손익에 재반영하지 않습니다.</p></section><section><h2>운영 내역</h2>'+tbl(['귀속일','항목','숙소·차량·거래처명','금액','비고',''],items.map(r=>[H(r.date),H(r.kind),H(r.unit),money(r.amount),H(r.note),btn('opEdit','수정','',r.id)]))+'</section>';
+}
+function editOperating(id){const r=(db.operating||[]).find(o=>o.id===id)||{date:month===today.slice(0,7)?today:month+'-01',kind:costKinds[0]};
+ dialog(id?'운영 내역 수정':'운영 내역 등록','<div class="grid">'+inp('date','귀속일','date',r.date,'required')+select('kind','항목',costKinds.map(k=>[k,k]),r.kind)+inp('unit','숙소·차량·거래처명','text',r.unit||'','required')+inp('amount','금액 (원)','number',r.amount??'','required min="0" step="1"')+inp('note','비고','text',r.note||'')+'</div><p>잘못 등록한 건은 금액을 0원으로 수정할 수 있습니다.</p>',async f=>{await change(d=>{const row={...f,amount:won(Number(f.amount)),id:r.id||uid()};const i=d.operating.findIndex(x=>x.id===row.id);if(i<0)d.operating.push(row);else d.operating[i]=row;});month=f.date.slice(0,7);render();});
+}
+function mobileReport(data,date,period){
+  const x=monthProfit(data,period),counts=countTable(data,date);
+  const card=(title,body)=>'<section><h2>'+H(title)+'</h2>'+body+'</section>';
+  const people=counts.map(([n,t,m,f,u,p,pm,pf,pu])=>'<article><strong>'+H(n)+'</strong><div>재직 '+t+'명 · 남 '+m+' / 여 '+f+' / 미입력 '+u+'</div><div>출근 '+p+'명 · 남 '+pm+' / 여 '+pf+' / 미입력 '+pu+'</div></article>').join('');
+  return '<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>이지솔루션 운영 요약</title><style>body{font:16px/1.65 system-ui,sans-serif;max-width:620px;margin:auto;padding:20px;background:#f2f6f6;color:#163936}section{background:white;border-radius:12px;padding:15px;margin:14px 0}article,p{padding:8px 0;margin:0;border-bottom:1px solid #dae3e3}h1,h2{margin:4px 0}small{color:#476665}b{float:right}</style><h1>이지솔루션 운영 요약</h1><small>'+H(demo?'예시 자료 · ':'')+'저장 시점의 조회본</small>'+card(date+' 공정별 인원',people)+card(date+' 차량별 배정',mobileFleet(data,date))+card(period+' 잠정 손익',profitRows(x).map(([k,v])=>'<p>'+H(k)+' <b>'+H(money(v))+'</b></p>').join(''))+'</html>';
+}
+
+// A chosen folder is device-local; the workbook and encryption password remain independent.
+let vaultFolder=null,backupState='별도 폴더 미연결',folderDB=null;
+async function backupSettings(){
+ if(folderDB)return folderDB;
+ folderDB=await new Promise((resolve,reject)=>{const req=indexedDB.open('ez-workdesk-backup',1);req.onupgradeneeded=()=>req.result.createObjectStore('folders');req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
+ return folderDB;
+}
+async function rememberFolder(handle){
+ const conn=await backupSettings();await new Promise((resolve,reject)=>{const tx=conn.transaction('folders','readwrite');if(handle)tx.objectStore('folders').put(handle,salt);else tx.objectStore('folders').delete(salt);tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);tx.onerror=()=>reject(tx.error);});
+}
+async function recallFolder(){
+ vaultFolder=null;backupState='별도 폴더 미연결';if(!globalThis.indexedDB)return;
+ try{const conn=await backupSettings();const h=await new Promise((ok,fail)=>{const q=conn.transaction('folders').objectStore('folders').get(salt);q.onsuccess=()=>ok(q.result);q.onerror=()=>fail(q.error);});
+ if(h){vaultFolder=h;backupState=await h.queryPermission({mode:'readwrite'})==='granted'?'자동 백업 폴더 연결됨':'자동 백업 권한 재연결 필요';}}catch{backupState='백업 폴더를 다시 선택하세요';}
+}
+async function writeFolderBackup(raw){
+ if(!vaultFolder)return;
+ try{if(await vaultFolder.queryPermission({mode:'readwrite'})!=='granted')throw Error('권한');
+ const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ const key=salt.replace(/[^A-Za-z0-9_-]/g,'');const f=await vaultFolder.getFileHandle('이지솔루션_'+key+'_'+date+'.json',{create:true});
+ const writer=await f.createWritable();await writer.write(raw);await writer.close();
+ backupState='폴더 백업 완료 · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'});}
+ catch{backupState='폴더 백업 실패 · 폴더를 다시 연결하거나 수동 백업하세요';}
+}
+async function folderAction(){
+ if(!window.showDirectoryPicker)throw Error('이 브라우저에서는 폴더 선택을 지원하지 않습니다. 암호화 백업을 눌러 파일을 저장하세요.');
+ const handle=await window.showDirectoryPicker({mode:'readwrite',id:'ez-workdesk-backup'});vaultFolder=handle;
+ try{await rememberFolder(handle);}catch{msg('이 기기는 폴더를 기억할 수 없어 다음 실행 때 다시 선택해야 합니다.');}
+ await writeFolderBackup(JSON.stringify(await seal(db)));render();
+}
+
+
+// Offline XLSX export. Only the explicitly listed fields are included in the file.
+function monthlySheets(data, period, employeeId) {
+  const include = id => !employeeId || id === employeeId;
+  const people = new Map(data.staff.map(s => [s.id, s]));
+  const identity = id => [people.get(id)?.code || '', people.get(id)?.name || ''];
+  const byMonth = rows => rows.filter(x => include(x.emp) && x.month === period);
+  const days = data.days.filter(x => include(x.emp) && x.date.startsWith(period+'-'))
+    .slice().sort((a,b) => a.date.localeCompare(b.date) || String(identity(a.emp)[0]).localeCompare(String(identity(b.emp)[0])));
+  const credits = byMonth(data.credits), bonuses = byMonth(data.bonuses), receipts = byMonth(data.receipts);
+  const employees = [...new Set([...days,...credits,...bonuses,...receipts].map(x => x.emp))];
+  const summary = employees.map(id => {
+    const p = payroll(data,id,period);
+    return [period,...identity(id),data.locks.includes(id+'|'+period)?'확정':'예상',p.rows.filter(x=>!x.absent).length,p.worked,p.late,p.early,p.basic,p.ot,p.bonus,p.gross,p.deductions,p.net,p.sent,p.due];
+  });
+  const accounts = new Map();
+  const work = days.map(x => {
+    const c=calculate(x), k=JSON.stringify([x.client,x.group]);
+    const a=accounts.get(k)||[x.client,x.group,0,0,0];a[2]+=Number(!x.absent);a[3]+=c.bill;a[4]+=c.gross;accounts.set(k,a);
+    return [x.date,...identity(x.emp),x.client,x.group,x.absent?'결근':[c.late?'지각':'',c.early?'조퇴':''].filter(Boolean).join('·')||'정상',x.absent?'':x.arrive,x.absent?'':x.leave,c.base,c.worked,c.late,c.early,x.ot,x.rate,c.loss,c.basic,c.overtime,c.gross,c.bill];
+  });
+  const costs = data.charges.filter(x => include(x.emp) && x.date.slice(0,7)<=period).map(ch => {
+    const events = data.credits.filter(c => c.charge===ch.id);
+    const previous=events.filter(x=>x.month<period).reduce((n,x)=>n+x.amount,0);
+    const now=events.filter(x=>x.month===period).reduce((n,x)=>n+x.amount,0);
+    if(ch.date.slice(0,7)<period && previous===ch.amount && !now) return null;
+    return [...identity(ch.emp),ch.date,ch.type,ch.amount,previous,now,ch.amount-previous-now];
+  }).filter(Boolean);
+  return [
+    ['월 급여',['귀속월','사번','성명','상태','출근일수','기본 실근무(분)','지각(분)','조퇴(분)','실근무 기본급','잔업급','수당','총지급액','공제액','실입금 예정액','누적 실송금액','남은 송금액'],summary],
+    ['일별 근태',['근무일','사번','성명','거래처','파트','근태','출근','퇴근','기준(분)','기본 실근무(분)','지각(분)','조퇴(분)','잔업(분)','기본 일당','미근무시간 상당액','기본급','잔업급','근무액','예상 청구액'],work],
+    ['비용과 공제',['사번','성명','발생일','항목','발생액','전월까지 회수','당월 급여 공제','해당 월말 잔액'],costs],
+    ['수당',['귀속월','사번','성명','수당명','금액'],bonuses.map(x=>[period,...identity(x.emp),x.note,x.amount])],
+    ['이체내역',['귀속월','사번','성명','실제 이체일','이체액'],receipts.map(x=>[period,...identity(x.emp),x.date,x.amount])],
+    ['거래처 정산',['거래처','파트','투입 인일','근태 기준 예상 청구액','근태 지급액'],[...accounts.values()]]
+  ];
+}
+function staffRosterSheets(staff, employeeId='') {
+  const columns=[
+    ['code','사번'],['name','성명'],['sex','성별'],['nationality','국적'],['phone','휴대폰번호'],
+    ['address','집주소 (상세주소 포함)'],['bank','은행'],['holder','예금주'],
+    ['account','계좌번호'],['arc','외국인등록번호'],['passport','여권번호'],
+    ['stay','체류기간 만료일'],['group','파트'],['client','거래처'],['hire','입사일'],
+    ['exit','퇴사일'],['dorm','숙소·호실'],['pickup','픽업 장소']
+  ];
+  const rows=staff.filter(e=>!employeeId||e.id===employeeId).map(e=>columns.map(([key])=>String(e[key]??'')));
+  return [['직원명부',columns.map(([,name])=>name),rows]];
+}
+function xlsxArchive(files) {
+  const enc = new TextEncoder(), local=[], central=[];
+  const crcTable=Array.from({length:256},(_,i)=>{for(let j=0;j<8;j++)i=(i>>>1)^((i&1)?0xedb88320:0);return i>>>0;});
+  const header=(len,fields)=>{const a=new Uint8Array(len),v=new DataView(a.buffer);
+    for(const [pos,size,value] of fields){if(size===2)v.setUint16(pos,value,true);else v.setUint32(pos,value,true);}return a;};
+  let offset=0;
+  for(const [path,xml] of files){
+    const name=enc.encode(path),body=enc.encode(xml);
+    let crc=0xffffffff;for(const b of body)crc=(crc>>>8)^crcTable[(crc^b)&255];crc=(crc^0xffffffff)>>>0;
+    const first=header(30,[[0,4,0x04034b50],[4,2,20],[12,2,33],[14,4,crc],[18,4,body.length],[22,4,body.length],[26,2,name.length]]);
+    const desc=header(46,[[0,4,0x02014b50],[4,2,20],[6,2,20],[14,2,33],[16,4,crc],[20,4,body.length],[24,4,body.length],[28,2,name.length],[42,4,offset]]);
+    local.push(first,name,body);central.push(desc,name);offset+=first.length+name.length+body.length;
+  }
+  const size=central.reduce((n,b)=>n+b.length,0);
+  const end=header(22,[[0,4,0x06054b50],[8,2,files.length],[10,2,files.length],[12,4,size],[16,4,offset]]);
+  return new Blob([...local,...central,end],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function payrollXlsx(sheets){
+  const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const rel='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const pr='http://schemas.openxmlformats.org/package/2006/relationships';
+  const mime='application/vnd.openxmlformats-officedocument.spreadsheetml.';
+  const esc=v=>String(v??'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+  const names=sheets.map((s,i)=>'<sheet name="'+esc(s[0])+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('');
+  const overrides=sheets.map((s,i)=>'<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="'+mime+'worksheet+xml"/>').join('');
+  const relationships=sheets.map((s,i)=>'<Relationship Id="rId'+(i+1)+'" Type="'+rel+'/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join('');
+  const files=[
+    ['[Content_Types].xml','<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="'+mime+'sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="'+mime+'styles+xml"/>'+overrides+'</Types>'],
+    ['_rels/.rels','<Relationships xmlns="'+pr+'"><Relationship Id="rId1" Type="'+rel+'/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ['xl/workbook.xml','<workbook xmlns="'+ns+'" xmlns:r="'+rel+'"><sheets>'+names+'</sheets></workbook>'],
+    ['xl/_rels/workbook.xml.rels','<Relationships xmlns="'+pr+'">'+relationships+'<Relationship Id="styles" Type="'+rel+'/styles" Target="styles.xml"/></Relationships>'],
+    ['xl/styles.xml','<styleSheet xmlns="'+ns+'"><fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="맑은 고딕"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF13685F"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFill="1" applyFont="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>']
+  ];
+  sheets.forEach(([sheetName,headers,rows],i)=>{
+    const textColumn=j=>sheetName==='직원명부'&&['사번','휴대폰번호','계좌번호','외국인등록번호','여권번호'].includes(headers[j]);
+    const col=j=>String.fromCharCode(65+j);
+    const xmlRows=[headers,...rows].map((row,n)=>'<row r="'+(n+1)+'"'+(n===0?' ht="24" customHeight="1"':'')+'>'+row.map((v,j)=>{
+      const adr=col(j)+(n+1);return typeof v==='number'&&Number.isFinite(v)?'<c r="'+adr+'" s="2"><v>'+v+'</v></c>':'<c r="'+adr+'" s="'+(n===0?1:textColumn(j)?3:0)+'" t="inlineStr"><is><t xml:space="preserve">'+esc(v)+'</t></is></c>';
+    }).join('')+'</row>').join('');
+    const cols=headers.map((v,j)=>'<col min="'+(j+1)+'" max="'+(j+1)+'" width="'+(v.includes('집주소')?50:v==='성명'?30:Math.max(18,v.length*2+5))+'" customWidth="1"'+(textColumn(j)?' style="3"':'')+'/>').join('');
+    files.push(['xl/worksheets/sheet'+(i+1)+'.xml','<worksheet xmlns="'+ns+'"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>'+cols+'</cols><sheetData>'+xmlRows+'</sheetData><autoFilter ref="A1:'+col(headers.length-1)+(rows.length+1)+'"/></worksheet>']);
+  });
+  return xlsxArchive(files);
+}
+
+let entryLocked = true;
+const loginEdition = !!document.querySelector('meta[name="ez-login"],meta[name="ez-hosted"]');
+function loginLanding(){
+ document.body.classList.add('signed-out');$('#title').textContent='회사 자료를 불러오는 중';$('#nav').innerHTML='';$('#view').innerHTML='';
+}
+let signedInUser='',signedInRole='';
+async function serverRequest(path,options={}){
+ const r=await fetch(path,{cache:'no-store',...options}),data=await r.json();
+ if(!r.ok){
+  if(r.status===401 || r.status===403)location.replace('/');
+  throw Error(data.error||'서버에 연결하지 못했습니다.');
+ }
+ return data;
+}
+async function loadShared(){
+ const result=await serverRequest('/api/workspace');
+ rev=result.rev;signedInUser=result.login;signedInRole=result.role;salt=result.backupSalt;
+ db=upgradeTransport(result.data||empty());demo=false;entryLocked=false;render();
+}
+function backupDialog(actionName){
+ const fields=inp('pw','백업 파일 비밀번호 (12자 이상)','password','','minlength="12" required autocomplete="new-password"')+
+ inp('again','백업 비밀번호 확인','password','','required autocomplete="new-password"');
+ return dialog('암호화 백업',fields+'<p>복원할 때 이 비밀번호가 필요합니다.</p>',async f=>{
+  if(f.pw!==f.again)throw Error('비밀번호 확인이 일치하지 않습니다.');
+  pass=f.pw;await recallFolder();
+  if(actionName==='backup'){const blob=await seal(db);download('이지솔루션_암호화백업_'+today+'.json',JSON.stringify(blob),'application/json');}
+  if(actionName==='folderBackup')msg('백업 암호를 설정했습니다. 자동 백업 폴더 버튼을 다시 눌러 폴더를 연결하세요.');
+  render();
+ });
+}
+const $=q=>document.querySelector(q),H=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+let db=empty(),tab='오늘 근태',day=today,month=today.slice(0,7),who='',demo=true,pass='',salt='',rev='',host=!!document.querySelector('meta[name="ez-hosted"]'),busy=false;
+const uid=()=>crypto.randomUUID(),money=x=>Number(x).toLocaleString('ko-KR')+'원',dur=x=>Math.floor(x/60)+'시간 '+x%60+'분',getEmp=id=>db.staff.find(e=>e.id===id),label=id=>getEmp(id)?.name||'퇴사 직원',lock=(id,m)=>db.locks.includes(id+'|'+m);
+const actions=['오늘 근태','직원카드','비용·공제','월 급여','거래처 정산','기숙사 관리','차량 관리','월 손익','기준정보 관리'];
+const btn=(a,t,cl='',id='')=>'<button type="button" class="'+cl+'" data-a="'+a+'" data-id="'+H(id)+'">'+H(t)+'</button>';
+const inp=(k,t,type='text',v='',attr='')=>'<label>'+H(t)+'<input name="'+k+'" type="'+type+'" value="'+H(v)+'" '+attr+'></label>';
+const select=(k,t,opts,v='')=>'<label>'+H(t)+'<select name="'+k+'">'+opts.map(([i,l])=>'<option value="'+H(i)+'" '+(i===v?'selected':'')+'>'+H(l)+'</option>').join('')+'</select></label>';
+const tbl=(heads,rows,emptyText='입력된 내역이 없습니다.')=>'<div class="table"><table><thead><tr>'+heads.map(h=>'<th>'+H(h)+'</th>').join('')+'</tr></thead><tbody>'+ (rows.length?rows.map(r=>'<tr>'+r.map(x=>'<td>'+x+'</td>').join('')+'</tr>').join(''):'<tr><td class="empty" colspan="'+heads.length+'">'+H(emptyText)+'</td></tr>')+'</tbody></table></div>';
+const metrics=xs=>'<div class="metrics">'+xs.map(([l,v,a])=>'<div class="card '+(a?'accent':'')+'"><small>'+H(l)+'</small><b>'+H(v)+'</b></div>').join('')+'</div>';
+const msg=t=>$('#notify').textContent=t;
+const active=e=>e.hire<=day&&(!e.exit||e.exit>=day),members=()=>db.staff.map(e=>[e.id,e.name+' · '+e.code]);
+function demoData(){let d=empty();let e={id:'sample',code:'예시01',name:'예시 직원',hire:today.slice(0,7)+'-01',exit:'',group:'부산물',client:'예시 거래처',start:'08:00',end:'17:00',bs:'12:00',be:'13:00',rate:96000,otRate:18000,bill:120000,otBill:20000,week:'12345'};d.staff=[e];d.days=[snapshot(e,today,{arrive:'08:30',leave:'16:00',ot:60})];d.charges=[{id:'room',emp:e.id,date:today,type:'숙소비',amount:20000,note:'예시 숙소'},{id:'med',emp:e.id,date:today,type:'병원비',amount:30000,note:'예시 대납'}];d.credits=[{id:'c1',emp:e.id,charge:'room',month,amount:20000,basis:'예시 반영'},{id:'c2',emp:e.id,charge:'med',month,amount:10000,basis:'예시 분할 반영'}];return d;}
+function snapshot(e,date,patch={}){return {emp:e.id,date,group:assignedGroup(e,date),sex:e.sex||'',client:e.client,start:e.start,end:e.end,bs:e.bs,be:e.be,rate:e.rate,otRate:e.otRate,bill:e.bill,otBill:e.otBill,arrive:e.start,leave:e.end,absent:false,ot:0,...patch};}
+db=loginEdition?upgradeTransport(empty()):upgradeTransport(demoData());who=db.staff[0]?.id||'';
+const b64=bytes=>{let s='';for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s)},unb=s=>Uint8Array.from(atob(s),x=>x.charCodeAt(0));
+async function key(p,s){let m=await crypto.subtle.importKey('raw',new TextEncoder().encode(p),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt:unb(s),iterations:310000,hash:'SHA-256'},m,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}
+async function seal(data){let iv=crypto.getRandomValues(new Uint8Array(12));return {v:1,salt,iv:b64(iv),body:b64(new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await key(pass,salt),new TextEncoder().encode(JSON.stringify(data)))))};}
+async function unpack(blob,p){if(blob.v!==1)throw Error('지원하지 않는 백업 형식입니다.');let bytes=await crypto.subtle.decrypt({name:'AES-GCM',iv:unb(blob.iv)},await key(p,blob.salt),unb(blob.body));let data=JSON.parse(new TextDecoder().decode(bytes));if(data.operating===undefined)data.operating=[];if(!Object.keys(empty()).every(k=>Array.isArray(data[k])))throw Error('자료 형식이 올바르지 않습니다.');return upgradeTransport(data);}
+async function saveData(data){
+ const saved=await serverRequest('/api/workspace',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({rev,data})});
+ rev=saved.rev;if(pass&&vaultFolder)await writeFolderBackup(JSON.stringify(await seal(data)));
+}
+async function change(fn){if(busy)throw Error('저장 중입니다.');busy=true;try{const next=structuredClone(db);fn(next);await saveData(next);db=next;render();}finally{busy=false;}}
+function download(name,data,type){let a=document.createElement('a'),url=URL.createObjectURL(new Blob([data],{type}));a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function dialog(title,body,fn,ok='저장'){let el=$('#dlg');el.innerHTML='<form><h2>'+H(title)+'</h2>'+body+'<p class="tip" id="err" role="status"></p><div class="actions"><button class="primary" type="submit">'+H(ok)+'</button><button type="button" data-a="cancel">닫기</button></div></form>';el.showModal();el.querySelector('form').onsubmit=async ev=>{ev.preventDefault();let f=ev.target,b=f.querySelector('[type=submit]');b.disabled=true;try{await fn(Object.fromEntries(new FormData(f)));el.close();if(loginEdition)el.innerHTML='';}catch(e){$('#err').textContent=e.name==='OperationError'?'암호를 확인하세요.':e.message;}finally{b.disabled=false;}};}
+function render(){
+if(loginEdition && entryLocked)return loginLanding();
+if(loginEdition)document.body.classList.remove('signed-out');
+if(!getEmp(who))who=db.staff[0]?.id||'';
+$('#nav').innerHTML=actions.map(k=>btn('tab',k,tab===k?'on':'',k)).join('');
+$('#title').textContent=tab;$('#mode').textContent=demo?'예시 자료 · 실제 기록과 분리':host?'비공개 업무공간 · 저장됨':'이 기기 업무공간 · 자동 저장됨';if(!demo)$('#mode').textContent+=' / '+backupState;
+$('#bar').innerHTML=demo?btn('unlock','내 업무공간 열기','primary'):btn('backup','암호화 백업')+' '+btn('restore','백업 복원')+' '+btn('lock',loginEdition?'로그아웃':'잠그기');
+$('#bar').innerHTML+= ' '+btn('accounts','직원 계정')+' '+btn('reloadShared','서버 새로고침');
+$('#mode').textContent=signedInUser+' · '+signedInRole+' · 회사 서버 / '+backupState;
+$('#bar').innerHTML+=' '+btn('xlsx','엑셀 저장')+' '+btn('phoneView','휴대폰 조회본');if(!demo)$('#bar').innerHTML+=' '+btn('folderBackup','자동 백업 폴더');if(!host&&!demo)$('#bar').innerHTML+=' '+btn('previous','직전 저장본 받기');
+const pane=$('#view');const pick=select('who','직원',members(),who),period=inp('month','귀속월','month',month,'required');
+if(tab==='오늘 근태'){
+let dow=String(new Date(day+'T12:00:00').getDay()),rows=db.days.filter(x=>x.date===day);let staff=db.staff.filter(e=>active(e)&&(e.week.includes(dow)||rows.some(x=>x.emp===e.id)));let remain=staff.filter(e=>!rows.some(x=>x.emp===e.id));
+pane.innerHTML='<section><div class="line"><h2>공정별 인원</h2>'+btn('tab','공정 관리','','기준정보 관리')+'</div>'+staffSummaryMarkup(db,day)+'<p class="tip">'+H(day)+' 기준 · 재직은 입퇴사일과 소속 기준, 출근은 근태를 확인한 실투입 기준입니다.</p></section>'+metrics([['예정·추가 투입',staff.length+'명'],['미확인',remain.length+'명',1],['지각',rows.filter(x=>calculate(x).late>0).length+'명'],['조퇴',rows.filter(x=>calculate(x).early>0).length+'명']])+'<section><div class="line">'+inp('day','근무일','date',day)+'<div class="actions">'+btn('addDay','추가 근무 등록')+btn('bulk','미확인 '+remain.length+'명 정상 출근','primary')+'</div></div><p>근태 예외를 먼저 입력하고, 실제 출근을 확인한 직원만 일괄 확정하세요.</p>'+tbl(['직원','파트','실제 출퇴근','근태','기본 실근무','잔업',''],staff.map(e=>{let x=rows.find(y=>y.emp===e.id),c=x&&calculate(x);return [H(e.name),H(x?.group||assignedGroup(e,day)),x&&!x.absent?H(x.arrive+' – '+x.leave):'—',x?(x.absent?'결근':[c.late?'지각 '+c.late+'분':'',c.early?'조퇴 '+c.early+'분':''].filter(Boolean).join(' · ')||'정상'):'미확인',c?dur(c.worked):'—',x?x.ot+'분':'—',btn('dayEdit','근태 입력','',e.id)]}),'예정 직원이 없습니다. 직원카드에서 근무요일을 설정하거나 추가 근무를 등록하세요.')+'</section>';
+}else if(tab==='직원카드'){
+pane.innerHTML='<section><div class="line"><h2>직원 명단</h2><div>'+btn('rosterExcel','직원명부 엑셀 다운로드')+' '+btn('staff','직원 등록','primary')+'</div></div>'+tbl(['사번','성명','성별','공정','거래처','기본 일당','입사일',''],db.staff.map(e=>[H(e.code),H(e.name),H(e.sex||'미입력'),H(assignedGroup(e,today)),H(e.client),money(e.rate),H(e.hire),btn('staff','카드 열기','',e.id)]))+'</section>';
+}else if(tab==='비용·공제'){
+const charges=db.charges.filter(x=>x.emp===who);
+pane.innerHTML='<section><div class="line">'+pick+btn('charge','비용 발생 등록','primary')+'</div><p>비용 등록 후 급여에서 회수할 금액만 귀속월에 반영합니다. 분할 회수한 나머지는 잔액으로 남습니다.</p>'+tbl(['발생일','항목','발생액','누적 급여 반영','미회수 잔액',''],charges.map(c=>[H(c.date),H(c.type),money(c.amount),money(c.amount-outstanding(db,c.id)),money(outstanding(db,c.id)),outstanding(db,c.id)>0?btn('credit','급여에 반영','',c.id):'회수 완료']))+'</section><section><h2>급여에 반영한 기록</h2>'+tbl(['귀속월','항목','공제액','반영 근거',''],db.credits.filter(x=>x.emp===who).map(c=>[H(c.month),H(db.charges.find(x=>x.id===c.charge)?.type),money(c.amount),H(c.basis),btn('undoCredit','반영 취소','',c.id)]))+'</section>';
+}else if(tab==='월 급여'){
+let p=payroll(db,who,month),lines=db.credits.filter(x=>x.emp===who&&x.month===month),state=lock(who,month)?'확정':'예상';
+pane.innerHTML='<section class="line"><div class="grid">'+pick+period+'</div><div class="actions">'+btn('bonus','수당 추가')+btn('close',state==='확정'?'마감 해제':'급여 확정','primary')+'</div></section>'+metrics([['근무·수당 총액',money(p.gross)],['급여 공제 합계',money(p.deductions)],['실입금 예정액',money(p.net),1],['남은 송금액',money(p.due)]])+'<section><div class="line"><h2>'+H(label(who))+' · '+H(month)+' 급여 '+state+'</h2>'+btn('print','명세 인쇄')+'</div>'+tbl(['근무일','기준 일당','기본 실근무 / 기준','시간 미반영액','실근무 기본급','잔업급'],p.rows.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(x=>{let c=calculate(x);return [H(x.date),money(x.rate),c.worked+' / '+c.base+'분',money(c.loss),money(c.basic),money(c.overtime)]}))+'<p>기준금액 '+money(p.scheduled)+' − 미근무시간 상당액 '+money(p.loss)+' = 실근무 기본급 <b>'+money(p.basic)+'</b></p><p>기본급 '+money(p.basic)+' + 잔업급 '+money(p.ot)+' + 수당 '+money(p.bonus)+' = 총지급액 <b>'+money(p.gross)+'</b></p>'+tbl(['공제 항목','이번 달 반영액','비고'],lines.map(x=>[H(db.charges.find(c=>c.id===x.charge)?.type),money(x.amount),H(x.basis)]))+'<p>총지급액 '+money(p.gross)+' − 공제 '+money(p.deductions)+' = 실입금 예정액 <b>'+money(p.net)+'</b></p></section><section><div class="line"><h2>이체 기록</h2>'+btn('receipt','실제 이체 기록')+'</div>'+tbl(['실제 이체일','이체액'],db.receipts.filter(x=>x.emp===who&&x.month===month).map(x=>[H(x.date),money(x.amount)]))+'<p>누적 송금액 '+money(p.sent)+' · 남은 송금액 '+money(p.due)+'</p></section>';
+}else if(tab==='기준정보 관리'){pane.innerHTML=catalogPage();}else if(tab==='기숙사 관리'){pane.innerHTML=dormPage();}else if(tab==='차량 관리'){pane.innerHTML=fleetPage();}else if(tab==='월 손익'||tab==='숙소·차량·월손익'){pane.innerHTML=financeView();}else{
+let mp=new Map();for(let x of db.days.filter(x=>x.date.startsWith(month))){let k=JSON.stringify([x.client,x.group]),z=mp.get(k)||{n:0,bill:0,pay:0};let c=calculate(x);z.n+=x.absent?0:1;z.bill+=c.bill;z.pay+=c.gross;mp.set(k,z);}
+pane.innerHTML='<section>'+period+'<p>실근무 비율과 별도 청구단가로 계산한 근태 기준 예상액입니다. 고객사별 물량·정액 조정 전 금액입니다.</p>'+tbl(['거래처','파트','투입 인일','예상 청구액','근태 지급액'],[...mp].map(([k,z])=>[...JSON.parse(k).map(H),z.n,money(z.bill),money(z.pay)]))+'</section>';}
+}
+function guard(){if(!who)throw Error('먼저 직원카드에서 직원을 등록하세요.');}
+function staffEdit(id){let e=getEmp(id)||{id:uid(),code:'E'+String(db.staff.length+1).padStart(4,'0'),hire:day,week:'12345',group:activeItems(db.groups)[0]?.name||'',start:'08:00',end:'17:00',bs:'12:00',be:'13:00',rate:0,otRate:0,bill:0,otBill:0};
+const names=activeItems(db.groups).map(g=>g.name),current=assignedGroup(e,day);
+ if(current&&!names.includes(current))names.push(current);
+ if(!names.length)throw Error('기준정보 관리에서 공정을 먼저 추가하세요.');
+ let fields=[['code','사번'],['name','성명'],['client','거래처'],['hire','입사일','date'],['exit','퇴사일','date'],['week','근무요일 (일0·월1~토6)'],['start','기준 출근','time'],['end','기준 퇴근','time'],['bs','휴게 시작','time'],['be','휴게 종료','time'],['rate','기본 일당 (원)','number'],['otRate','잔업 지급 시급','number'],['bill','기본 청구 일당','number'],['otBill','잔업 청구 시급','number']];
+let privateFields=[['phone','휴대폰번호','tel'],['address','집주소 (상세주소 포함)'],['nationality','국적'],['bank','은행'],['account','계좌번호'],['holder','예금주'],['arc','외국인등록번호'],['passport','여권번호'],['stay','체류기간 만료일','date'],['dorm','숙소·호실'],['pickup','픽업 장소']];
+const fieldsHTML=(arr,req)=>arr.map(([k,l,t])=>inp(k,l,t||'text',['dorm','pickup'].includes(k)?fieldAt(e,k,day):(e[k]??''),(req&&k!=='exit'?'required ':'')+(t==='number'?'min="0" step="1"':''))).join('');
+dialog('직원카드','<div class="grid">'+fieldsHTML(fields,true)+select('sex','성별',[['','미입력'],['남','남'],['여','여']],e.sex||'')+select('group','공정',names.map(g=>[g,g]),current)+(id?inp('groupFrom','공정 변경 적용일','date',day,'required'):'')+'</div><p class="tip">단가 변경은 새로 확정하는 근태에 적용됩니다. 이미 저장한 날짜는 그날의 단가를 유지합니다.</p><details open><summary>개인정보 · 휴대폰 · 집주소 · 계좌 · 신분증</summary><div class="grid">'+fieldsHTML(privateFields,false)+'</div></details>',async f=>{f.name=f.name.trim();f.code=f.code.trim();if(!f.code||!f.name||!/^([0-6]){1,7}$/.test(f.week)||f.exit&&f.exit<f.hire)throw Error('사번·성명·요일·재직기간을 확인하세요.');for(let k of ['rate','otRate','bill','otBill'])f[k]=won(Number(f[k]));calculate(snapshot({...e,...f},day));await change(d=>{if(d.staff.some(x=>x.code===f.code&&x.id!==e.id))throw Error('사용 중인 사번입니다.');let {groupFrom,dorm,pickup,...values}=f;let merged={...e,...values};
+ const effective=id?day:values.hire;
+ const targetRoom=d.rooms.find(r=>r.name===dorm.trim());
+ if(targetRoom?.archivedOn&&fieldAt(e,'dorm',effective)!==dorm.trim())throw Error('사용 종료한 호실입니다. 기준정보 관리에서 다시 사용을 선택하세요.');
+ setField(merged,'dorm',effective,dorm.trim());setField(merged,'pickup',effective,pickup.trim());
+ if(dorm.trim()&&!d.rooms.some(r=>r.name===dorm.trim()))d.rooms.push({id:uid(),name:dorm.trim(),capacity:null,address:''});if(id&&values.group!==assignedGroup(e,day)){
+ if(groupFrom<values.hire)throw Error('공정 적용일은 입사일 이후로 입력하세요.');
+ merged.firstGroup=e.firstGroup||e.group;merged.assignments=[...(e.assignments||[]).filter(a=>a.from!==groupFrom),{from:groupFrom,group:values.group}];
+ }let i=d.staff.findIndex(x=>x.id===e.id);if(i<0)d.staff.push(merged);else d.staff[i]=merged;});});}
+function dayEdit(id){let e=getEmp(id);if(!e)throw Error('직원을 선택하세요.');let old=db.days.find(x=>x.date===day&&x.emp===id),x=old||snapshot(e,day);if(lock(id,day.slice(0,7)))throw Error('급여가 확정된 월입니다.');dialog(e.name+' · '+day,'<div class="grid">'+select('kind','근무 여부',[['work','출근'],['absent','결근']],x.absent?'absent':'work')+inp('arrive','실제 출근','time',x.arrive,'required')+inp('leave','실제 퇴근','time',x.leave,'required')+inp('ot','확정 잔업 (분)','number',x.ot,'required min="0" step="1"')+'</div><p>기준 '+H(x.start)+'–'+H(x.end)+' · 무급 휴게 '+H(x.bs)+'–'+H(x.be)+' · 기본시간 밖 잔업은 확정한 분만 별도 반영합니다.</p><p class="msg" id="calc"></p>',async f=>{let row={...x,arrive:f.arrive,leave:f.leave,absent:f.kind==='absent',ot:Number(f.ot)};calculate(row);await change(d=>{d.days=d.days.filter(y=>!(y.emp===id&&y.date===day));d.days.push(row);});});let form=$('#dlg form');function update(){try{let f=Object.fromEntries(new FormData(form)),c=calculate({...x,arrive:f.arrive,leave:f.leave,absent:f.kind==='absent',ot:Number(f.ot)});$('#calc').textContent='지각 '+c.late+'분 · 조퇴 '+c.early+'분 · 기본 실근무 '+dur(c.worked)+' · 근무액 '+money(c.gross);}catch(err){$('#calc').textContent=err.message;}}form.oninput=update;update();}
+async function action(a,id){
+if(a==='cancel')return $('#dlg').close();
+if(entryLocked)return;
+if(a==='accounts'){location.assign('/accounts');return;}
+if(a==='reloadShared'){await loadShared();msg('최신 자료를 불러왔습니다.');return;}
+if(a==='lock'){await serverRequest('/api/logout',{method:'POST'});location.replace('/');return;}
+if(a==='previous'||a==='unlock'||a==='workspaceLogin')return;
+if((a==='backup'||a==='folderBackup')&&!pass)return backupDialog(a);
+
+if(a==='groupEdit')return editGroup(id);
+if(a==='retireItem'||a==='restoreItem')return retireItem(id,a==='restoreItem');
+if(logisticsActions.includes(a))return dispatchLogistics(a,id);
+if(a==='fleetXlsx'){const file=payrollXlsx(transportSheets(db,day));download((demo?'예시_':'')+'이지솔루션_배차명단_'+day+'.xlsx',file,file.type);return;}
+if(a==='opAdd'||a==='opEdit')return editOperating(id);
+if(a==='previous'){const raw=localStorage.getItem(storeKey+'-previous');if(!raw)throw Error('아직 생성된 직전 저장본이 없습니다.');download('이지솔루션_직전저장본_'+today+'.json',raw,'application/json');return;}
+if(a==='folderBackup')return folderAction();
+if(a==='phoneView')return dialog('휴대폰용 운영 요약',inp('date','재직·출근 기준일','date',day,'required')+inp('period','손익 귀속월','month',month,'required')+'<p>이름과 신분증 번호를 제외한 인원·손익 요약입니다. 저장한 HTML 파일을 휴대폰 브라우저에서 열 수 있습니다.</p>',async f=>{
+ download('이지솔루션_운영요약_'+f.date+'_'+f.period+'.html',mobileReport(db,f.date,f.period),'text/html;charset=utf-8');
+},'조회본 저장');
+if(a==='rosterExcel')return dialog('직원명부 엑셀 다운로드',select('person','대상 직원',[['','전체 직원'],...members()])+ '<p>휴대폰번호, 집주소, 계좌번호, 외국인등록번호와 여권번호가 포함된 암호 없는 엑셀 파일입니다.</p>',async f=>{
+    const blob=payrollXlsx(staffRosterSheets(db.staff.map(e=>({...e,dorm:fieldAt(e,'dorm',today),pickup:fieldAt(e,'pickup',today)})),f.person));
+    download((demo?'예시_':'')+'이지솔루션_직원명부_'+today+'.xlsx',blob,blob.type);
+},'직원명부 내려받기');
+if(a==='xlsx')return dialog('월별 엑셀 저장',inp('period','급여 귀속월','month',month,'required')+select('person','대상 직원',[['','전체 직원'],...members()])+ '<p>급여·근태·공제·수당·이체·거래처 정산을 저장합니다. 계좌번호와 신분증 번호는 제외합니다. 엑셀 파일에는 암호가 없습니다.</p>',async f=>{
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(f.period))throw Error('귀속월을 확인하세요.');
+  const sheets=monthlySheets(db,f.period,f.person);
+  if(!f.person){
+    const ops=operatingRows(db,f.period),p=monthProfit(db,f.period);
+    sheets.push(['숙소차량운영비',['귀속일','항목','숙소·차량·거래처명','금액','비고'],ops.map(x=>[x.date,x.kind,x.unit,x.amount,x.note])]);
+    if(sheets.some(s=>s[2].length))sheets.push(['월 손익',['항목','금액 (원)'],profitRows(p)]);
+    const next=new Date(f.period+'-01T12:00:00Z');next.setUTCMonth(next.getUTCMonth()+1,0);
+    const ref=next.toISOString().slice(0,10)>today?today:next.toISOString().slice(0,10);
+    if(ref.startsWith(f.period)&&db.staff.length)sheets.push(['공정별 인원',['기준일',...countHead],countTable(db,ref).map(row=>[ref,...row])]);
+  }
+  if(!sheets.some(([,headers,rows])=>rows.length))throw Error('선택한 월과 직원의 내역이 없습니다.');
+  const blob=payrollXlsx(sheets);
+  download((demo?'예시_':'')+'이지솔루션_'+f.period+'_'+(f.person?'개인':'전체')+'_근태급여.xlsx',blob,blob.type);
+},'엑셀 내려받기');
+if(a==='cancel')return $('#dlg').close();if(a==='tab'){tab=id;msg('');render();return;}
+
+if(a==='backup'){let blob=await seal(db);download('이지솔루션_암호화백업_'+today+'.json',JSON.stringify(blob),'application/json');return;}
+if(a==='restore')return dialog('암호화 백업 복원','<p>현재 자료 전체를 선택한 백업으로 교체합니다. 기존 자료는 먼저 암호화 백업으로 내려받으세요.</p><label>백업 파일<input name="file" type="file" accept=".json" required></label>'+inp('password','백업 생성 당시 암호','password','','required')+inp('confirm','교체하려면 복원 입력','text','','required'),async f=>{if(f.confirm!=='복원'||f.file.size>16000000)throw Error('파일 크기·확인 문구를 확인하세요.');let next=await unpack(JSON.parse(await f.file.text()),f.password);next.days.forEach(calculate);delete next.ownerLogin;await saveData(next);db=next;who='';render();},'복원');
+if(a==='staff')return staffEdit(id);
+if(a==='dayEdit')return dayEdit(id);
+if(a==='addDay'){let opts=db.staff.filter(active).map(e=>[e.id,e.name+' · '+e.code]);if(!opts.length)throw Error('재직 직원을 먼저 등록하세요.');return dialog('추가 근무',select('id','직원',opts),async f=>{setTimeout(()=>dayEdit(f.id),0);},'근태 입력');}
+if(a==='bulk'){const dow=String(new Date(day+'T12:00:00').getDay());let list=db.staff.filter(e=>active(e)&&e.week.includes(dow)&&!db.days.some(x=>x.emp===e.id&&x.date===day));if(!list.length)throw Error('미확인 예정자가 없습니다.');return dialog('정상 출근 일괄 확정','<p>'+H(day)+' · '+list.length+'명</p><p>'+H(list.map(x=>x.name).join(', '))+'</p>',async()=>change(d=>{for(let e of list){if(lock(e.id,day.slice(0,7)))throw Error('확정된 급여월이 포함됐습니다.');let row=snapshot(e,day);calculate(row);d.days.push(row);}}),'출근 확정');}
+guard();
+if(a==='charge')return dialog(label(who)+' · 비용 발생',select('type','항목',['숙소비','병원비','가불금','기타','원천공제'].map(x=>[x,x]))+inp('date','발생일','date',day,'required')+inp('amount','발생액 (원)','number','','min="1" step="1" required')+inp('note','내용 또는 증빙 참조','text','','required')+'<p class="tip">등록만으로는 입금 예정액이 줄지 않습니다. 지각·조퇴는 근태에서만 처리하세요.</p>',async f=>change(d=>d.charges.push({...f,id:uid(),emp:who,amount:won(+f.amount)})));
+if(a==='credit'){let ch=db.charges.find(x=>x.id===id);return dialog(ch.type+' · 급여 반영',inp('month','급여 귀속월','month',month,'required')+inp('amount','이번 달 반영액 (원)','number',outstanding(db,id),'min="1" step="1" required')+inp('basis','확인한 공제 근거·증빙 참조','text','','required')+'<p>남은 금액 '+money(outstanding(db,id))+'</p>',async f=>change(d=>applyCredit(d,id,f.month,+f.amount,f.basis)));}
+if(a==='undoCredit'){let x=db.credits.find(y=>y.id===id);if(lock(x.emp,x.month))throw Error('먼저 귀속월 급여 마감을 해제하세요.');return dialog('공제 반영 취소','<p>'+H(x.month)+' '+money(x.amount)+'을 미회수 잔액으로 되돌립니다.</p>',async()=>change(d=>{d.credits=d.credits.filter(y=>y.id!==id);}), '취소 반영');}
+if(a==='bonus'){if(lock(who,month))throw Error('확정된 월입니다.');return dialog('수당 추가',inp('note','수당명','text','','required')+inp('amount','금액 (원)','number','','min="1" step="1" required'),async f=>change(d=>d.bonuses.push({...f,id:uid(),emp:who,month,amount:won(+f.amount)})));}
+if(a==='close'){let closed=lock(who,month),p=payroll(db,who,month);if(!closed&&(!p.rows.length&&!p.bonus||p.net<0||p.due<0))throw Error('근무·수당 및 차액을 확인하세요.');return dialog(closed?'급여 마감 해제':'급여 확정','<p>'+H(label(who))+' · '+H(month)+' · 실입금 예정 '+money(p.net)+'</p>',async()=>change(d=>{let k=who+'|'+month;d.locks=closed?d.locks.filter(x=>x!==k):[...d.locks,k];}),closed?'해제':'확정');}
+if(a==='receipt'){if(!lock(who,month))throw Error('급여 확정 후 실제 이체를 기록하세요.');let max=payroll(db,who,month).due;if(max<=0)throw Error('남은 송금액이 없습니다.');return dialog('실제 이체 기록',inp('date','실제 이체일','date',today,'required')+inp('amount','실제 송금액 (원)','number',max,'min="1" max="'+max+'" required'),async f=>change(d=>{if(won(+f.amount)>max)throw Error('남은 금액을 초과합니다.');d.receipts.push({id:uid(),emp:who,month,date:f.date,amount:+f.amount});}));}
+if(a==='print')return window.print();
+}
+document.addEventListener('click',async ev=>{const b=ev.target.closest('button[data-a]');if(!b||busy)return;try{msg('');await action(b.dataset.a,b.dataset.id);}catch(e){msg(e.message);}});
+$('#view').addEventListener('change',ev=>{let f=ev.target;if(f.name==='day'&&f.value)day=f.value;if(f.name==='month'&&f.value)month=f.value;if(f.name==='who')who=f.value;render();});render();loadShared().catch(e=>{$('#title').textContent='자료를 열 수 없습니다';msg(e.message+' 페이지를 새로고침하세요.');});
+window.addEventListener('pageshow',e=>{if(e.persisted)location.reload()});
+</script></html>
